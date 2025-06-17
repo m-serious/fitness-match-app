@@ -16,6 +16,8 @@ class UserProfile:
     user_id: str
     
     # Part 1: Basic Information (required fields first)
+    age: int  # in years - required
+    gender: str  # "Male", "Female", "Non-binary", "Prefer not to say" - required
     height: float  # in cm - required
     weight: float  # in kg - required
     experience: int  # years of fitness experience - required
@@ -68,7 +70,7 @@ class FitnessEmbeddingGenerator:
             Formatted text description
         """
         # Basic Information
-        basic_info = f"Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
+        basic_info = f"Age: {profile.age} years, Gender: {profile.gender}, Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
         if profile.body_fat:
             basic_info += f", Body Fat: {profile.body_fat}%"
         if profile.frequency:
@@ -168,6 +170,7 @@ def generate_sample_users() -> List[UserProfile]:
     snack_types = ["Sweet (candy/dessert)", "Salty (chips/crackers)", "Healthy (fruit/nuts)", "Mixed / varies"]
     beverages = ["Mostly water", "Water & diet drinks", "Sugary drinks daily", "Mostly coffee/tea"]
     diet_prefs = ["Omnivore", "Vegetarian", "Vegan", "Keto / low-carb"]
+    genders = ["Male", "Female", "Non-binary", "Prefer not to say"]
     
     fitness_goals_options = [
         "Weight Loss", "Muscle Gain", "Strength Training", "Cardio Fitness",
@@ -191,8 +194,18 @@ def generate_sample_users() -> List[UserProfile]:
     
     for i in range(1, 11):
         # Generate realistic basic info
-        height = round(random.uniform(150, 200), 1)  # 150-200cm
-        weight = round(random.uniform(50, 120), 1)  # 50-120kg
+        age = random.randint(15, 65)  # 15-65 years old
+        gender = random.choice(genders)
+        
+        # Height varies by gender for realism
+        if gender == "Male":
+            height = round(random.uniform(155, 195), 1)  # 165-195cm for males
+        elif gender == "Female":
+            height = round(random.uniform(145, 185), 1)  # 155-185cm for females
+        else:
+            height = round(random.uniform(145, 195), 1)  # Full range for others
+
+        weight = round(random.uniform(40, 120), 1)  # 50-120kg
         experience = random.randint(0, 10)  # 0-10 years
         
         # Required diet survey answers
@@ -214,7 +227,9 @@ def generate_sample_users() -> List[UserProfile]:
         struggling = random.choice(struggling_examples)
         
         user = UserProfile(
-            user_id=f"user_{i:03d}",
+            user_id=f"user_{i:04d}",
+            age=age,
+            gender=gender,
             height=height,
             weight=weight,
             experience=experience,

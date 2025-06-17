@@ -40,6 +40,8 @@ class UserDatabase:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fitness_users (
                 user_id VARCHAR(255) PRIMARY KEY,
+                age INTEGER NOT NULL,
+                gender VARCHAR(50) NOT NULL,
                 height FLOAT NOT NULL,
                 weight FLOAT NOT NULL,
                 experience INTEGER NOT NULL,
@@ -81,12 +83,14 @@ class UserDatabase:
         
         cursor.execute('''
             INSERT INTO fitness_users 
-            (user_id, height, weight, experience, body_fat, frequency,
+            (user_id, age, gender, height, weight, experience, body_fat, frequency,
              eat_out_freq, cook_freq, daily_snacks, snack_type,
              fruit_veg_servings, beverage_choice, diet_preference,
              fitness_goals, struggling_with, embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
+                age = EXCLUDED.age,
+                gender = EXCLUDED.gender,
                 height = EXCLUDED.height,
                 weight = EXCLUDED.weight,
                 experience = EXCLUDED.experience,
@@ -103,7 +107,7 @@ class UserDatabase:
                 struggling_with = EXCLUDED.struggling_with,
                 embedding = EXCLUDED.embedding
         ''', (
-            profile.user_id, profile.height, profile.weight, profile.experience,
+            profile.user_id, profile.age, profile.gender, profile.height, profile.weight, profile.experience,
             profile.body_fat, profile.frequency, profile.eat_out_freq,
             profile.cook_freq, profile.daily_snacks, profile.snack_type,
             profile.fruit_veg_servings, profile.beverage_choice, profile.diet_preference,
@@ -132,45 +136,81 @@ class UserDatabase:
         
         users_with_embeddings = []
         for row in rows:
-            # Handle fitness_goals - check if it's already a list or needs JSON parsing
-            fitness_goals = row[13]
-            if isinstance(fitness_goals, str):
-                fitness_goals = json.loads(fitness_goals)
-            elif isinstance(fitness_goals, list):
-                fitness_goals = fitness_goals  # Already a list
-            else:
-                logger.warning(f"Unexpected fitness_goals type for user {row[0]}: {type(fitness_goals)}")
-                fitness_goals = []
-            
-            # Handle embedding - check if it's already a list or needs JSON parsing
-            embedding = row[15]
-            if isinstance(embedding, str):
-                embedding = json.loads(embedding)
-            elif isinstance(embedding, list):
-                embedding = embedding  # Already a list
-            else:
-                logger.warning(f"Unexpected embedding type for user {row[0]}: {type(embedding)}")
-                continue  # Skip this user if embedding is invalid
-            
-            profile = UserProfile(
-                user_id=row[0],
-                height=row[1],
-                weight=row[2],
-                experience=row[3],
-                body_fat=row[4],
-                frequency=row[5],
-                eat_out_freq=row[6],
-                cook_freq=row[7],
-                daily_snacks=row[8],
-                snack_type=row[9],
-                fruit_veg_servings=row[10],
-                beverage_choice=row[11],
-                diet_preference=row[12],
-                fitness_goals=fitness_goals,
-                struggling_with=row[14] or ""
-            )
-            users_with_embeddings.append((profile, embedding))
+            try:
+                # 数据库字段顺序：
+                # 0: user_id, 1: age, 2: gender, 3: height, 4: weight, 5: experience,
+                # 6: body_fat, 7: frequency, 8: eat_out_freq, 9: cook_freq, 10: daily_snacks,
+                # 11: snack_type, 12: fruit_veg_servings, 13: beverage_choice, 14: diet_preference,
+                # 15: fitness_goals, 16: struggling_with, 17: embedding, 18: created_at
+                
+                # Handle fitness_goals
+                fitness_goals = row[15]
+                if isinstance(fitness_goals, str):
+                    if fitness_goals.strip():
+                        fitness_goals = json.loads(fitness_goals)
+                    else:
+                        fitness_goals = []
+                elif isinstance(fitness_goals, list):
+                    fitness_goals = fitness_goals
+                elif fitness_goals is None:
+                    fitness_goals = []
+                else:
+                    logger.warning(f"Unexpected fitness_goals type for user {row[0]}: {type(fitness_goals)}")
+                    fitness_goals = []
+                
+                # Handle embedding
+                embedding = row[17]
+                if isinstance(embedding, str):
+                    if embedding.strip():
+                        embedding = json.loads(embedding)
+                    else:
+                        logger.error(f"Empty embedding string for user {row[0]}, skipping...")
+                        continue
+                elif isinstance(embedding, list):
+                    embedding = embedding
+                elif embedding is None:
+                    logger.error(f"NULL embedding for user {row[0]}, skipping...")
+                    continue
+                else:
+                    logger.warning(f"Unexpected embedding type for user {row[0]}: {type(embedding)}")
+                    continue
+                
+                # Validate embedding
+                if not embedding or len(embedding) == 0:
+                    logger.error(f"Empty embedding vector for user {row[0]}, skipping...")
+                    continue
+                
+                profile = UserProfile(
+                    user_id=row[0],
+                    age=row[1],
+                    gender=row[2],
+                    height=row[3],
+                    weight=row[4],
+                    experience=row[5],
+                    body_fat=row[6],
+                    frequency=row[7],
+                    eat_out_freq=row[8],
+                    cook_freq=row[9],
+                    daily_snacks=row[10],
+                    snack_type=row[11],
+                    fruit_veg_servings=row[12],
+                    beverage_choice=row[13],
+                    diet_preference=row[14],
+                    fitness_goals=fitness_goals,
+                    struggling_with=row[16] or ""
+                )
+                users_with_embeddings.append((profile, embedding))
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error for user {row[0]}: {e}")
+                logger.error(f"Problematic fitness_goals: {repr(row[15])}")
+                logger.error(f"Problematic embedding: {repr(row[17])}")
+                continue
+            except Exception as e:
+                logger.error(f"Error processing user {row[0]}: {e}")
+                continue
         
+        logger.info(f"Successfully loaded {len(users_with_embeddings)} users from database")
         return users_with_embeddings
     
     def get_user_count(self) -> int:
@@ -374,6 +414,8 @@ class FitnessUserMatcher:
                 "rank": i + 1,
                 "user_id": profile.user_id,
                 "similarity_score": round(similarity, 4),
+                "age": profile.age,
+                "gender": profile.gender,
                 "height": profile.height,
                 "weight": profile.weight,
                 "experience": profile.experience,
@@ -397,6 +439,8 @@ def main():
         # Create new user for matching
         new_user = UserProfile(
             user_id="new_user_001",
+            age=25,
+            gender="Female",
             height=170.0,
             weight=70.0,
             experience=2,

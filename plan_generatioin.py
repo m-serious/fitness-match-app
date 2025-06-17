@@ -40,7 +40,7 @@ class FitnessPlanGenerator:
         role = "Primary User" if is_primary else "Matched Partner"
         
         # Basic Information
-        basic_info = f"Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
+        basic_info = f"Age: {profile.age} years, Gender: {profile.gender}, Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
         if profile.body_fat:
             basic_info += f", Body Fat: {profile.body_fat}%"
         if profile.frequency:
@@ -239,6 +239,8 @@ def main():
         # Create sample user profiles (simulate matched users with new structure)
         primary_user = UserProfile(
             user_id="user_001",
+            age=28,
+            gender="Female",
             height=170.0,
             weight=72.0,
             experience=1,  # 1 year experience (beginner)
@@ -257,6 +259,8 @@ def main():
         
         matched_user = UserProfile(
             user_id="user_002",
+            age=32,
+            gender="Male",
             height=165.0,
             weight=65.0,
             experience=3,  # 3 years experience (intermediate)

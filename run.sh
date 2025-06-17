@@ -164,6 +164,8 @@ try:
     # Create a new user
     new_user = UserProfile(
         user_id='integration_test_user',
+        age=26,
+        gender='Female',
         height=175.0,
         weight=68.0,
         experience=2,
