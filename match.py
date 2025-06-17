@@ -291,12 +291,15 @@ class UserDatabase:
         conn.close()
         logger.info("Database cleared")
 
+from group_manager import FitnessGroupDatabase
+from plan_generation import FitnessPlanGenerator
+
 class FitnessUserMatcher:
     """Fitness user matching system"""
     
     def __init__(self, connection_string: Optional[str] = None, api_key: Optional[str] = None):
         """
-        Initialize user matcher
+        Initialize user matcher with group management
         
         Args:
             connection_string: PostgreSQL connection string
@@ -304,6 +307,98 @@ class FitnessUserMatcher:
         """
         self.database = UserDatabase(connection_string)
         self.embedding_generator = FitnessEmbeddingGenerator(api_key)
+        self.group_database = FitnessGroupDatabase(connection_string)
+        self.plan_generator = FitnessPlanGenerator()
+    
+    def create_fitness_group(self, new_user: UserProfile, top_k: int = 1) -> Dict:
+        """
+        Create a new fitness group for a user with their best match
+        
+        Args:
+            new_user: New user profile
+            top_k: Number of matches to consider (default: 1 for best match)
+            
+        Returns:
+            Dictionary containing group creation results
+        """
+        try:
+            # Add new user to database if not exists
+            self.add_user_to_database(new_user)
+            
+            # Find best matches
+            matches = self.find_best_matches(new_user, top_k=top_k)
+            
+            if not matches:
+                logger.warning(f"No matches found for user {new_user.username}")
+                return {
+                    "success": False,
+                    "message": "No suitable matches found",
+                    "user": new_user.username
+                }
+            
+            # Get the best match
+            best_match_profile, similarity_score = matches[0]
+            
+            logger.info(f"Creating fitness group for {new_user.username} and {best_match_profile.username} (similarity: {similarity_score:.4f})")
+            
+            # Generate fitness group plan using GPT
+            group_plan = self.plan_generator.generate_fitness_group_plan(new_user, best_match_profile)
+            
+            # Save group to database
+            group_id = self.group_database.add_group(group_plan)
+            
+            # Save plan to JSON file
+            saved_file = self.plan_generator.save_fitness_plan(group_plan)
+            
+            return {
+                "success": True,
+                "group_id": group_id,
+                "group_name": group_plan["groupName"],
+                "primary_user": new_user.username,
+                "matched_user": best_match_profile.username,
+                "similarity_score": similarity_score,
+                "plan_file": saved_file,
+                "group_plan": group_plan
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to create fitness group: {e}")
+            return {
+                "success": False,
+                "message": str(e),
+                "user": new_user.username
+            }
+        
+    def get_user_groups(self, username: str) -> List[Dict]:
+        """
+        Get all fitness groups for a specific user
+        
+        Args:
+            username: Username to search for
+            
+        Returns:
+            List of group information dictionaries
+        """
+        groups = self.group_database.get_groups_by_user(username)
+        
+        group_info = []
+        for group in groups:
+            info = {
+                "group_id": group.group_id,
+                "group_name": group.group_name,
+                "description": group.description,
+                "goal": group.goal,
+                "weeks": group.how_many_weeks,
+                "members": group.member_full_names,
+                "created_at": group.created_at
+            }
+            group_info.append(info)
+        
+        return group_info
+    
+    def display_all_groups(self):
+        """Display all fitness groups in a formatted table"""
+        self.group_database.display_groups_table()
     
     def add_user_to_database(self, profile: UserProfile):
         """

@@ -138,7 +138,7 @@ run_plan_generation() {
 # Function to run complete integration test
 run_integration_test() {
     echo ""
-    echo "🔄 Step 4: Running complete integration test..."
+    echo "🔄 Step 4: Running complete integration test with group creation..."
     echo "----------------------------------------------"
     
     python3 -c "
@@ -146,17 +146,17 @@ import sys
 sys.path.append('.')
 from embedding import UserProfile, FitnessEmbeddingGenerator
 from match import FitnessUserMatcher
-from plan_generatioin import FitnessPlanGenerator
+from plan_generation import FitnessPlanGenerator
+from group_manager import FitnessGroupDatabase
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
 try:
-    print('🚀 Starting complete integration test...')
+    print('🚀 Starting complete integration test with group creation...')
     
     # Initialize all components
     matcher = FitnessUserMatcher()
-    plan_generator = FitnessPlanGenerator()
     
     # Ensure database has sample data
     matcher.populate_sample_data()
@@ -183,31 +183,34 @@ try:
         struggling_with='Maintaining consistency and balancing work-life schedule'
     )
     
-    matcher.add_user_to_database(new_user)
     print(f'👤 Created test user: {new_user.username}')
     
-    # Find matches
-    print('🔍 Finding best matches...')
-    matches = matcher.find_best_matches(new_user, top_k=3)
+    # Create fitness group (this includes matching, plan generation, and database storage)
+    print('🏃‍♀️ Creating fitness group...')
+    group_result = matcher.create_fitness_group(new_user)
     
-    if not matches:
-        print('⚠️  No matches found!')
+    if not group_result['success']:
+        print(f'❌ Group creation failed: {group_result[\"message\"]}')
         sys.exit(1)
     
-    best_match = matches[0][0]  # Get the best match profile
-    print(f'🎯 Best match found: {best_match.username} (similarity: {matches[0][1]:.4f})')
+    print(f'✅ Fitness group created successfully!')
+    print(f'🏷️  Group ID: {group_result[\"group_id\"]}')
+    print(f'👥 Group Name: {group_result[\"group_name\"]}')
+    print(f'🤝 Members: {group_result[\"primary_user\"]} + {group_result[\"matched_user\"]}')
+    print(f'🎯 Similarity Score: {group_result[\"similarity_score\"]:.4f}')
+    print(f'📄 Plan saved to: {group_result[\"plan_file\"]}')
     
-    # Generate fitness plan
-    print('📋 Generating fitness plan for matched pair...')
-    plan_data = plan_generator.generate_fitness_plan(new_user, best_match)
+    # Display all groups in database
+    print('\\n📊 Current fitness groups in database:')
+    matcher.display_all_groups()
     
-    # Save plan
-    saved_file = plan_generator.save_fitness_plan(plan_data, 'integration_test_fitness_plan.txt')
+    # Show user's groups
+    user_groups = matcher.get_user_groups(new_user.username)
+    print(f'\\n👤 Groups for {new_user.username}: {len(user_groups)}')
+    for group in user_groups:
+        print(f'  - {group[\"group_name\"]} (Goal: {group[\"goal\"]}, Duration: {group[\"weeks\"]} weeks)')
     
-    print(f'✅ Integration test completed successfully!')
-    print(f'📄 Fitness plan saved to: {saved_file}')
-    print(f'🤖 Model used: {plan_data[\"model_used\"]}')
-    print(f'🔢 Tokens used: {plan_data[\"tokens_used\"]}')
+    print(f'\\n🎉 Integration test completed successfully!')
     
 except Exception as e:
     print(f'❌ Integration test failed: {e}')
@@ -215,7 +218,7 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 "
-    check_status "Complete integration test"
+    check_status "Complete integration test with group creation"
 }
 
 # Function to display summary
@@ -227,7 +230,7 @@ show_summary() {
     echo "✅ User embeddings generated using Qwen3-Embedding-4B"
     echo "✅ Sample users populated in PostgreSQL database"
     echo "✅ User matching algorithm tested"
-    echo "✅ Fitness plan generated using o1-mini model"
+    echo "✅ Fitness plan generated using 4o-mini model"
     echo "✅ Complete integration test passed"
     echo ""
     echo "🎉 Fitness Match App is fully operational!"

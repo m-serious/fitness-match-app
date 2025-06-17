@@ -1,0 +1,47 @@
+{
+  "groupId": "group_123456",
+  "groupName": "Muscle Mavericks of Seattle & Dallas",
+  "description": "Join the Muscle Mavericks where fitness meets flexibility! This group combines the strength of diverse experiences to achieve muscle gain while working around busy schedules.",
+  "goal": "Muscle Gain",
+  "weeklyPlan": {
+    "howManyWeeks": "8",
+    "oddDayWorkoutPlan": {
+      "title": "Strength Surge Sessions",
+      "duration": "60 minutes",
+      "exercises": [
+        "Deadlifts",
+        "Push-Ups",
+        "Bent-over Rows",
+        "Squats",
+        "Plank"
+      ],
+      "diet": "Focus on high-protein meals with a balance of carbs and healthy fats. Include sources like chicken, legumes, and quinoa."
+    },
+    "evenDayWorkoutPlan": {
+      "title": "Active Recovery & Cardio Boost",
+      "duration": "45 minutes",
+      "exercises": [
+        "Brisk Walking",
+        "Cycling",
+        "Yoga",
+        "Bodyweight Exercises",
+        "Stretching"
+      ],
+      "diet": "Incorporate a variety of fruits, vegetables, and whole grains. Consider smoothies with protein powder for post-workout recovery."
+    }
+  },
+  "memberFullNames": [
+    "integration_test_user",
+    "user_0001"
+  ],
+  "memberUsernames": [
+    "integration_test_user",
+    "user_0001"
+  ],
+  "metadata": {
+    "model_used": "gpt-4o-mini-2024-07-18",
+    "tokens_used": 1027,
+    "primary_user": "integration_test_user",
+    "matched_user": "user_0001"
+  }
+}
