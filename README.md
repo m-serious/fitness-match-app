@@ -267,7 +267,7 @@ python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)"
 ```bibtex
 @misc{fitness_match_app_2025,
   title = {Fitness Match App: AI-Powered Fitness Partner Matching System},
-  author = {Zijia Liu and Prince Ali and Arihant Jain},
+  author = {Zijia Liu and Ali Gedawi and Arihant Jain},
   year = {2025},
   url = {https://github.com/m-serious/fitness-match-app},
   note = {GitHub repository}
