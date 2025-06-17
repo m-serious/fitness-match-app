@@ -1,54 +1,68 @@
 import numpy as np
-import sqlite3
+import psycopg2
 import json
 import logging
+import os
 from typing import List, Tuple, Optional, Dict
 from dataclasses import asdict
 from sklearn.metrics.pairwise import cosine_similarity
-from match import UserProfile, FitnessEmbeddingGenerator
+from embedding import UserProfile, FitnessEmbeddingGenerator, generate_sample_users
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class UserDatabase:
-    """User profile and embedding database manager"""
+    """User profile and embedding database manager using PostgreSQL"""
     
-    def __init__(self, db_path: str = "fitness_users.db"):
+    def __init__(self, connection_string: Optional[str] = None):
         """
         Initialize database connection
         
         Args:
-            db_path: Path to SQLite database file
+            connection_string: PostgreSQL connection string
         """
-        self.db_path = db_path
+        self.connection_string = connection_string or os.getenv("POSTGRES_URL")
+        if not self.connection_string:
+            raise ValueError("Need to provide POSTGRES_URL environment variable or connection_string parameter")
+        
         self.init_database()
+    
+    def get_connection(self):
+        """Get database connection"""
+        return psycopg2.connect(self.connection_string)
     
     def init_database(self):
         """Initialize database tables"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                goals TEXT,
-                weight REAL,
-                height REAL,
-                age INTEGER,
-                fitness_level TEXT,
-                preferred_activities TEXT,
-                schedule TEXT,
-                location TEXT,
-                additional_info TEXT,
-                embedding TEXT,
+            CREATE TABLE IF NOT EXISTS fitness_users (
+                user_id VARCHAR(255) PRIMARY KEY,
+                height FLOAT NOT NULL,
+                weight FLOAT NOT NULL,
+                experience INTEGER NOT NULL,
+                body_fat FLOAT,
+                frequency INTEGER,
+                eat_out_freq VARCHAR(10) NOT NULL,
+                cook_freq VARCHAR(10) NOT NULL,
+                daily_snacks VARCHAR(10) NOT NULL,
+                snack_type VARCHAR(100) NOT NULL,
+                fruit_veg_servings VARCHAR(10) NOT NULL,
+                beverage_choice VARCHAR(100) NOT NULL,
+                diet_preference VARCHAR(50) NOT NULL,
+                fitness_goals JSONB NOT NULL,
+                struggling_with TEXT DEFAULT '',
+                embedding JSONB NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
         conn.commit()
+        cursor.close()
         conn.close()
-        logger.info("Database initialized successfully")
+        logger.info("PostgreSQL database initialized successfully")
     
     def add_user(self, profile: UserProfile, embedding: List[float]):
         """
@@ -58,26 +72,46 @@ class UserDatabase:
             profile: User fitness profile
             embedding: User embedding vector
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Convert list to JSON string for storage
-        preferred_activities_json = json.dumps(profile.preferred_activities)
+        # Convert list to JSON for storage
+        fitness_goals_json = json.dumps(profile.fitness_goals)
         embedding_json = json.dumps(embedding)
         
         cursor.execute('''
-            INSERT OR REPLACE INTO users 
-            (user_id, goals, weight, height, age, fitness_level, 
-             preferred_activities, schedule, location, additional_info, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO fitness_users 
+            (user_id, height, weight, experience, body_fat, frequency,
+             eat_out_freq, cook_freq, daily_snacks, snack_type,
+             fruit_veg_servings, beverage_choice, diet_preference,
+             fitness_goals, struggling_with, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                height = EXCLUDED.height,
+                weight = EXCLUDED.weight,
+                experience = EXCLUDED.experience,
+                body_fat = EXCLUDED.body_fat,
+                frequency = EXCLUDED.frequency,
+                eat_out_freq = EXCLUDED.eat_out_freq,
+                cook_freq = EXCLUDED.cook_freq,
+                daily_snacks = EXCLUDED.daily_snacks,
+                snack_type = EXCLUDED.snack_type,
+                fruit_veg_servings = EXCLUDED.fruit_veg_servings,
+                beverage_choice = EXCLUDED.beverage_choice,
+                diet_preference = EXCLUDED.diet_preference,
+                fitness_goals = EXCLUDED.fitness_goals,
+                struggling_with = EXCLUDED.struggling_with,
+                embedding = EXCLUDED.embedding
         ''', (
-            profile.user_id, profile.goals, profile.weight, profile.height,
-            profile.age, profile.fitness_level, preferred_activities_json,
-            profile.schedule, profile.location, profile.additional_info,
-            embedding_json
+            profile.user_id, profile.height, profile.weight, profile.experience,
+            profile.body_fat, profile.frequency, profile.eat_out_freq,
+            profile.cook_freq, profile.daily_snacks, profile.snack_type,
+            profile.fruit_veg_servings, profile.beverage_choice, profile.diet_preference,
+            fitness_goals_json, profile.struggling_with, embedding_json
         ))
         
         conn.commit()
+        cursor.close()
         conn.close()
         logger.info(f"User {profile.user_id} added to database")
     
@@ -88,53 +122,139 @@ class UserDatabase:
         Returns:
             List of tuples containing (UserProfile, embedding)
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM users')
+        cursor.execute('SELECT * FROM fitness_users ORDER BY created_at')
         rows = cursor.fetchall()
+        cursor.close()
         conn.close()
         
         users_with_embeddings = []
         for row in rows:
+            # Handle fitness_goals - check if it's already a list or needs JSON parsing
+            fitness_goals = row[13]
+            if isinstance(fitness_goals, str):
+                fitness_goals = json.loads(fitness_goals)
+            elif isinstance(fitness_goals, list):
+                fitness_goals = fitness_goals  # Already a list
+            else:
+                logger.warning(f"Unexpected fitness_goals type for user {row[0]}: {type(fitness_goals)}")
+                fitness_goals = []
+            
+            # Handle embedding - check if it's already a list or needs JSON parsing
+            embedding = row[15]
+            if isinstance(embedding, str):
+                embedding = json.loads(embedding)
+            elif isinstance(embedding, list):
+                embedding = embedding  # Already a list
+            else:
+                logger.warning(f"Unexpected embedding type for user {row[0]}: {type(embedding)}")
+                continue  # Skip this user if embedding is invalid
+            
             profile = UserProfile(
                 user_id=row[0],
-                goals=row[1],
+                height=row[1],
                 weight=row[2],
-                height=row[3],
-                age=row[4],
-                fitness_level=row[5],
-                preferred_activities=json.loads(row[6]),
-                schedule=row[7],
-                location=row[8],
-                additional_info=row[9]
+                experience=row[3],
+                body_fat=row[4],
+                frequency=row[5],
+                eat_out_freq=row[6],
+                cook_freq=row[7],
+                daily_snacks=row[8],
+                snack_type=row[9],
+                fruit_veg_servings=row[10],
+                beverage_choice=row[11],
+                diet_preference=row[12],
+                fitness_goals=fitness_goals,
+                struggling_with=row[14] or ""
             )
-            embedding = json.loads(row[10])
             users_with_embeddings.append((profile, embedding))
         
         return users_with_embeddings
     
     def get_user_count(self) -> int:
         """Get total number of users in database"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM users')
+        cursor.execute('SELECT COUNT(*) FROM fitness_users')
         count = cursor.fetchone()[0]
+        cursor.close()
         conn.close()
         return count
+    
+    def cleanup_database(self):
+        """Clean up and fix data format issues in database"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        logger.info("Cleaning up database data format...")
+        
+        # Get all users
+        cursor.execute('SELECT user_id, fitness_goals, embedding FROM fitness_users')
+        rows = cursor.fetchall()
+        
+        for user_id, fitness_goals, embedding in rows:
+            try:
+                # Fix fitness_goals format
+                if isinstance(fitness_goals, list):
+                    fitness_goals_json = json.dumps(fitness_goals)
+                elif isinstance(fitness_goals, str):
+                    # Try to parse and re-serialize to ensure valid JSON
+                    parsed_goals = json.loads(fitness_goals)
+                    fitness_goals_json = json.dumps(parsed_goals)
+                else:
+                    logger.warning(f"Invalid fitness_goals format for {user_id}, setting to empty list")
+                    fitness_goals_json = json.dumps([])
+                
+                # Fix embedding format
+                if isinstance(embedding, list):
+                    embedding_json = json.dumps(embedding)
+                elif isinstance(embedding, str):
+                    # Try to parse and re-serialize to ensure valid JSON
+                    parsed_embedding = json.loads(embedding)
+                    embedding_json = json.dumps(parsed_embedding)
+                else:
+                    logger.error(f"Invalid embedding format for {user_id}, skipping...")
+                    continue
+                
+                # Update the record
+                cursor.execute('''
+                    UPDATE fitness_users 
+                    SET fitness_goals = %s, embedding = %s 
+                    WHERE user_id = %s
+                ''', (fitness_goals_json, embedding_json, user_id))
+                
+            except Exception as e:
+                logger.error(f"Failed to fix data for user {user_id}: {e}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info("Database cleanup completed")
+    
+    def clear_database(self):
+        """Clear all user data from database"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM fitness_users')
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info("Database cleared")
 
 class FitnessUserMatcher:
     """Fitness user matching system"""
     
-    def __init__(self, db_path: str = "fitness_users.db", api_key: Optional[str] = None):
+    def __init__(self, connection_string: Optional[str] = None, api_key: Optional[str] = None):
         """
         Initialize user matcher
         
         Args:
-            db_path: Path to user database
+            connection_string: PostgreSQL connection string
             api_key: DeepInfra API key for embedding generation
         """
-        self.database = UserDatabase(db_path)
+        self.database = UserDatabase(connection_string)
         self.embedding_generator = FitnessEmbeddingGenerator(api_key)
     
     def add_user_to_database(self, profile: UserProfile):
@@ -150,6 +270,45 @@ class FitnessUserMatcher:
         # Add to database
         self.database.add_user(profile, embedding)
         logger.info(f"User {profile.user_id} successfully added to database")
+    
+    def populate_sample_data(self, force_refresh: bool = False):
+        """
+        Populate database with sample users if empty
+        
+        Args:
+            force_refresh: If True, clear existing data and repopulate
+        """
+        if force_refresh:
+            logger.info("Force refresh requested - clearing database...")
+            self.database.clear_database()
+        
+        if self.database.get_user_count() == 0:
+            logger.info("Database is empty. Generating and adding sample users...")
+            sample_users = generate_sample_users()
+            
+            for user in sample_users:
+                try:
+                    self.add_user_to_database(user)
+                except Exception as e:
+                    logger.error(f"Failed to add user {user.user_id}: {str(e)}")
+            
+            logger.info(f"Added {len(sample_users)} sample users to database")
+        else:
+            # Try to fix existing data format issues
+            try:
+                logger.info(f"Database contains {self.database.get_user_count()} users")
+                self.database.cleanup_database()
+            except Exception as e:
+                logger.warning(f"Database cleanup failed: {e}")
+                logger.info("Attempting to clear and repopulate database...")
+                self.database.clear_database()
+                sample_users = generate_sample_users()
+                for user in sample_users:
+                    try:
+                        self.add_user_to_database(user)
+                    except Exception as e:
+                        logger.error(f"Failed to add user {user.user_id}: {str(e)}")
+                logger.info(f"Re-populated database with {len(sample_users)} sample users")
     
     def find_best_matches(self, new_user: UserProfile, top_k: int = 5) -> List[Tuple[UserProfile, float]]:
         """
@@ -215,12 +374,12 @@ class FitnessUserMatcher:
                 "rank": i + 1,
                 "user_id": profile.user_id,
                 "similarity_score": round(similarity, 4),
-                "goals": profile.goals,
-                "fitness_level": profile.fitness_level,
-                "preferred_activities": profile.preferred_activities,
-                "location": profile.location,
-                "age": profile.age,
-                "schedule": profile.schedule
+                "height": profile.height,
+                "weight": profile.weight,
+                "experience": profile.experience,
+                "fitness_goals": profile.fitness_goals,
+                "diet_preference": profile.diet_preference,
+                "struggling_with": profile.struggling_with
             }
             match_details["matches"].append(match_info)
         
@@ -232,64 +391,26 @@ def main():
         # Initialize matcher
         matcher = FitnessUserMatcher()
         
-        # Create sample users for database (simulate existing users)
-        sample_users = [
-            UserProfile(
-                user_id="user_001",
-                goals="Weight loss and cardio improvement",
-                weight=75.0,
-                height=170.0,
-                age=25,
-                fitness_level="Beginner",
-                preferred_activities=["Running", "Cycling"],
-                schedule="Weekday evenings",
-                location="New York",
-                additional_info="Looking for motivation partner"
-            ),
-            UserProfile(
-                user_id="user_002",
-                goals="Muscle building and strength training",
-                weight=80.0,
-                height=180.0,
-                age=30,
-                fitness_level="Intermediate",
-                preferred_activities=["Weight lifting", "CrossFit"],
-                schedule="Morning workouts",
-                location="Los Angeles",
-                additional_info="Experienced lifter"
-            ),
-            UserProfile(
-                user_id="user_003",
-                goals="Weight loss and muscle toning",
-                weight=65.0,
-                height=165.0,
-                age=28,
-                fitness_level="Beginner",
-                preferred_activities=["Yoga", "Running"],
-                schedule="Weekend workouts",
-                location="Chicago",
-                additional_info="New to fitness"
-            )
-        ]
-        
-        # Add sample users to database (only if database is empty)
-        if matcher.database.get_user_count() == 0:
-            logger.info("Adding sample users to database...")
-            for user in sample_users:
-                matcher.add_user_to_database(user)
+        # Populate with sample data if database is empty
+        matcher.populate_sample_data()
         
         # Create new user for matching
         new_user = UserProfile(
             user_id="new_user_001",
-            goals="Fat loss and improve cardiovascular health",
-            weight=72.0,
-            height=168.0,
-            age=26,
-            fitness_level="Beginner",
-            preferred_activities=["Running", "Swimming"],
-            schedule="Evening workouts",
-            location="New York",
-            additional_info="Want to find workout buddy"
+            height=170.0,
+            weight=70.0,
+            experience=2,
+            eat_out_freq="2–3",
+            cook_freq="4–5",
+            daily_snacks="1",
+            snack_type="Healthy (fruit/nuts)",
+            fruit_veg_servings="4–5",
+            beverage_choice="Mostly water",
+            diet_preference="Omnivore",
+            fitness_goals=["Weight Loss", "Cardio Fitness"],
+            body_fat=18.5,
+            frequency=4,
+            struggling_with="Finding time for consistent workouts"
         )
         
         # Find best matches
@@ -299,24 +420,27 @@ def main():
         # Display results
         match_details = matcher.get_match_details(matches)
         
-        print("\n" + "="*60)
+        print("\n" + "="*80)
         print("FITNESS MATCHING RESULTS")
-        print("="*60)
+        print("="*80)
         print(f"New User: {new_user.user_id}")
-        print(f"Goals: {new_user.goals}")
+        print(f"Profile: {new_user.height}cm, {new_user.weight}kg, {new_user.experience}yr exp")
+        print(f"Goals: {', '.join(new_user.fitness_goals)}")
+        print(f"Diet: {new_user.diet_preference}")
         print(f"Total matches found: {match_details['total_matches']}")
         print("\nTop Matches:")
-        print("-"*60)
+        print("-"*80)
         
         for match in match_details['matches']:
             print(f"Rank #{match['rank']}")
             print(f"User ID: {match['user_id']}")
             print(f"Similarity Score: {match['similarity_score']:.4f}")
-            print(f"Goals: {match['goals']}")
-            print(f"Fitness Level: {match['fitness_level']}")
-            print(f"Location: {match['location']}")
-            print(f"Preferred Activities: {', '.join(match['preferred_activities'])}")
-            print("-"*60)
+            print(f"Profile: {match['height']}cm, {match['weight']}kg, {match['experience']}yr exp")
+            print(f"Goals: {', '.join(match['fitness_goals'])}")
+            print(f"Diet: {match['diet_preference']}")
+            if match['struggling_with']:
+                print(f"Struggling: {match['struggling_with']}")
+            print("-"*80)
         
     except Exception as e:
         logger.error(f"Error in main execution: {str(e)}")

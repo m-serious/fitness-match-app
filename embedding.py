@@ -1,6 +1,8 @@
 import os
 import logging
-from typing import List, Union, Optional
+import psycopg2
+import json
+from typing import List, Union, Optional, Dict
 from openai import OpenAI
 from dataclasses import dataclass
 
@@ -12,15 +14,28 @@ logger = logging.getLogger(__name__)
 class UserProfile:
     """User fitness profile data structure"""
     user_id: str
-    goals: str  # Fitness goals
-    weight: float
-    height: float
-    age: int
-    fitness_level: str  # Beginner/Intermediate/Advanced
-    preferred_activities: List[str]  # Preferred exercise types
-    schedule: str  # Training schedule
-    location: str  # Geographic location
-    additional_info: str = ""  # Additional information
+    
+    # Part 1: Basic Information (required fields first)
+    height: float  # in cm - required
+    weight: float  # in kg - required
+    experience: int  # years of fitness experience - required
+    
+    # Part 2: Diet Habits (required single choice questions)
+    eat_out_freq: str  # "0–1", "2–3", "4–5", "6+"
+    cook_freq: str  # "0–1", "2–3", "4–5", "6+"
+    daily_snacks: str  # "0", "1", "2", "3+"
+    snack_type: str  # "Sweet (candy/dessert)", "Salty (chips/crackers)", "Healthy (fruit/nuts)", "Mixed / varies"
+    fruit_veg_servings: str  # "0–1", "2–3", "4–5", "6+"
+    beverage_choice: str  # "Mostly water", "Water & diet drinks", "Sugary drinks daily", "Mostly coffee/tea"
+    diet_preference: str  # "Omnivore", "Vegetarian", "Vegan", "Keto / low-carb"
+    
+    # Part 3: Fitness Goals (required)
+    fitness_goals: List[str]  # At least one from predefined list - required
+    
+    # Optional fields (must come after all required fields)
+    body_fat: Optional[float] = None  # percentage - optional
+    frequency: Optional[int] = None  # times per week - optional
+    struggling_with: str = ""  # Optional string field
 
 class FitnessEmbeddingGenerator:
     """Fitness user profile embedding generator"""
@@ -52,17 +67,36 @@ class FitnessEmbeddingGenerator:
         Returns:
             Formatted text description
         """
-        text = f"""
-        Fitness Goals: {profile.goals}
-        Body Data: Weight {profile.weight}kg, Height {profile.height}cm, Age {profile.age} years
-        Fitness Level: {profile.fitness_level}
-        Preferred Activities: {', '.join(profile.preferred_activities)}
-        Training Schedule: {profile.schedule}
-        Location: {profile.location}
+        # Basic Information
+        basic_info = f"Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
+        if profile.body_fat:
+            basic_info += f", Body Fat: {profile.body_fat}%"
+        if profile.frequency:
+            basic_info += f", Workout Frequency: {profile.frequency} times per week"
+        
+        # Diet Habits
+        diet_info = f"""
+        Diet Habits:
+        - Eats out: {profile.eat_out_freq} times per week
+        - Cooks: {profile.cook_freq} times per week
+        - Daily snacks: {profile.daily_snacks}
+        - Snack type: {profile.snack_type}
+        - Fruit & vegetable servings: {profile.fruit_veg_servings} daily
+        - Beverage preference: {profile.beverage_choice}
+        - Diet preference: {profile.diet_preference}
         """
         
-        if profile.additional_info:
-            text += f"Additional Info: {profile.additional_info}"
+        # Fitness Goals
+        goals_info = f"Fitness Goals: {', '.join(profile.fitness_goals)}"
+        
+        text = f"""
+        Basic Information: {basic_info}
+        {diet_info.strip()}
+        {goals_info}
+        """
+        
+        if profile.struggling_with:
+            text += f"\nStruggling with: {profile.struggling_with}"
         
         return text.strip()
     
@@ -124,6 +158,83 @@ class FitnessEmbeddingGenerator:
         logger.info(f"Batch generating embeddings for {len(profiles)} user profiles")
         return self.generate_embedding(profile_texts)
 
+def generate_sample_users() -> List[UserProfile]:
+    """Generate 10 sample users with random but realistic data"""
+    import random
+    
+    # Predefined options for survey questions
+    freq_options = ["0–1", "2–3", "4–5", "6+"]
+    snacks_options = ["0", "1", "2", "3+"]
+    snack_types = ["Sweet (candy/dessert)", "Salty (chips/crackers)", "Healthy (fruit/nuts)", "Mixed / varies"]
+    beverages = ["Mostly water", "Water & diet drinks", "Sugary drinks daily", "Mostly coffee/tea"]
+    diet_prefs = ["Omnivore", "Vegetarian", "Vegan", "Keto / low-carb"]
+    
+    fitness_goals_options = [
+        "Weight Loss", "Muscle Gain", "Strength Training", "Cardio Fitness",
+        "Flexibility", "Endurance", "General Health", "Sports Performance"
+    ]
+    
+    struggling_examples = [
+        "Finding time for consistent workouts",
+        "Staying motivated during winter months",
+        "Controlling portion sizes",
+        "Building upper body strength",
+        "Maintaining workout routine while traveling",
+        "Balancing cardio and strength training",
+        "Eating healthy on a budget",
+        "Recovering from previous injury",
+        "Setting realistic fitness goals",
+        ""  # Some users might not fill this
+    ]
+    
+    sample_users = []
+    
+    for i in range(1, 11):
+        # Generate realistic basic info
+        height = round(random.uniform(150, 200), 1)  # 150-200cm
+        weight = round(random.uniform(50, 120), 1)  # 50-120kg
+        experience = random.randint(0, 10)  # 0-10 years
+        
+        # Required diet survey answers
+        eat_out = random.choice(freq_options)
+        cook_freq = random.choice(freq_options)
+        daily_snacks = random.choice(snacks_options)
+        snack_type = random.choice(snack_types)
+        fruit_veg = random.choice(freq_options)
+        beverage = random.choice(beverages)
+        diet_pref = random.choice(diet_prefs)
+        
+        # Fitness goals (1-3 goals per user)
+        num_goals = random.randint(1, 3)
+        goals = random.sample(fitness_goals_options, num_goals)
+        
+        # Optional fields (70% chance to fill)
+        body_fat = round(random.uniform(8, 35), 1) if random.random() < 0.7 else None
+        frequency = random.randint(1, 7) if random.random() < 0.7 else None
+        struggling = random.choice(struggling_examples)
+        
+        user = UserProfile(
+            user_id=f"user_{i:03d}",
+            height=height,
+            weight=weight,
+            experience=experience,
+            eat_out_freq=eat_out,
+            cook_freq=cook_freq,
+            daily_snacks=daily_snacks,
+            snack_type=snack_type,
+            fruit_veg_servings=fruit_veg,
+            beverage_choice=beverage,
+            diet_preference=diet_pref,
+            fitness_goals=goals,
+            body_fat=body_fat,
+            frequency=frequency,
+            struggling_with=struggling
+        )
+        
+        sample_users.append(user)
+    
+    return sample_users
+
 # Usage example
 def main():
     """Usage example"""
@@ -131,28 +242,29 @@ def main():
         # Initialize embedding generator
         generator = FitnessEmbeddingGenerator()
         
-        # Create sample user profile
-        sample_profile = UserProfile(
-            user_id="user_001",
-            goals="Fat loss and muscle gain, improve cardiovascular fitness",
-            weight=70.5,
-            height=175.0,
-            age=28,
-            fitness_level="Intermediate",
-            preferred_activities=["Running", "Weight lifting", "Swimming"],
-            schedule="3-4 times per week, evening training",
-            location="Beijing Chaoyang District",
-            additional_info="Hope to find training partner to stay motivated"
-        )
+        # Generate sample users
+        sample_users = generate_sample_users()
         
-        # Generate embedding for single profile
-        embedding = generator.generate_profile_embedding(sample_profile)
-        print(f"User profile embedding dimension: {len(embedding)}")
-        print(f"First 5 embedding values: {embedding[:5]}")
+        print("Generated Sample Users:")
+        print("=" * 50)
         
-        # Batch generation example (if you have multiple users)
-        # batch_embeddings = generator.generate_batch_embeddings([sample_profile])
-        # print(f"Batch generation completed, total {len(batch_embeddings)} embeddings")
+        for user in sample_users:
+            print(f"\nUser ID: {user.user_id}")
+            print(f"Basic: {user.height}cm, {user.weight}kg, {user.experience}yr exp")
+            if user.body_fat:
+                print(f"Body Fat: {user.body_fat}%")
+            if user.frequency:
+                print(f"Frequency: {user.frequency}x/week")
+            print(f"Goals: {', '.join(user.fitness_goals)}")
+            print(f"Diet: {user.diet_preference}, Eats out: {user.eat_out_freq}")
+            if user.struggling_with:
+                print(f"Struggling: {user.struggling_with}")
+        
+        # Generate embedding for first user as example
+        print(f"\nGenerating embedding for {sample_users[0].user_id}...")
+        embedding = generator.generate_profile_embedding(sample_users[0])
+        print(f"Embedding dimension: {len(embedding)}")
+        print(f"First 5 values: {embedding[:5]}")
         
     except Exception as e:
         logger.error(f"Program execution failed: {str(e)}")

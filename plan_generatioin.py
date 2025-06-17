@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class FitnessPlanGenerator:
-    """Generate personalized fitness plans using OpenAI o1-mini"""
+    """Generate personalized fitness plans using OpenAI o4-mini"""
     
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -24,7 +24,7 @@ class FitnessPlanGenerator:
             raise ValueError("Need to provide OPENAI_API_KEY environment variable or api_key parameter")
         
         self.client = OpenAI(api_key=self.api_key)
-        self.model = "o4-mini"
+        self.model = "gpt-4o-mini-2024-07-18"
     
     def create_user_summary(self, profile: UserProfile, is_primary: bool = True) -> str:
         """
@@ -39,16 +39,35 @@ class FitnessPlanGenerator:
         """
         role = "Primary User" if is_primary else "Matched Partner"
         
+        # Basic Information
+        basic_info = f"Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
+        if profile.body_fat:
+            basic_info += f", Body Fat: {profile.body_fat}%"
+        if profile.frequency:
+            basic_info += f", Workout Frequency: {profile.frequency} times per week"
+        
+        # Diet Summary
+        diet_summary = f"""
+        Diet Habits:
+        - Eating out: {profile.eat_out_freq} times/week
+        - Cooking: {profile.cook_freq} times/week
+        - Daily snacks: {profile.daily_snacks}
+        - Snack preference: {profile.snack_type}
+        - Fruit & vegetable intake: {profile.fruit_veg_servings} servings/day
+        - Beverage preference: {profile.beverage_choice}
+        - Diet type: {profile.diet_preference}
+        """
+        
         summary = f"""
 {role}: {profile.user_id}
-- Goals: {profile.goals}
-- Physical Stats: {profile.weight}kg, {profile.height}cm, {profile.age} years old
-- Current Fitness Level: {profile.fitness_level}
-- Preferred Activities: {', '.join(profile.preferred_activities)}
-- Available Schedule: {profile.schedule}
-- Location: {profile.location}
-- Additional Notes: {profile.additional_info}
+Basic Information: {basic_info}
+{diet_summary.strip()}
+Fitness Goals: {', '.join(profile.fitness_goals)}
         """
+        
+        if profile.struggling_with:
+            summary += f"\nCurrent Struggles: {profile.struggling_with}"
+        
         return summary.strip()
     
     def generate_fitness_plan_prompt(self, primary_user: UserProfile, matched_user: UserProfile) -> str:
@@ -77,48 +96,55 @@ REQUIREMENTS:
 Please create a detailed fitness plan that includes:
 
 1. COMPATIBILITY ANALYSIS
-   - Analyze how these two users complement each other
-   - Identify shared goals and activities
-   - Note any differences that need accommodation
+   - Analyze how these two users complement each other based on their experience levels, goals, and preferences
+   - Identify shared fitness goals and compatible workout styles
+   - Note any differences in experience/fitness level that need accommodation
+   - Consider their diet preferences and how they can support each other
 
 2. WEEKLY WORKOUT SCHEDULE
-   - Design a 4-6 week progressive plan
-   - Include specific exercises for each day
-   - Account for both users' fitness levels and preferences
-   - Suggest modifications for different fitness levels
-   - Include rest days and recovery
+   - Design a 4-6 week progressive plan considering both users' experience levels
+   - Include specific exercises for each day that work for both fitness levels
+   - Account for their stated workout frequency preferences
+   - Suggest modifications for different experience levels
+   - Include proper rest days and recovery periods
 
 3. PARTNER WORKOUT ROUTINES
-   - Specific exercises they can do together
-   - How to motivate and support each other
-   - Safety considerations when working out as a team
+   - Specific exercises they can do together effectively
+   - How to motivate and support each other during workouts
+   - Safety considerations when working out as a team with different experience levels
+   - Partner-based exercises that can accommodate different fitness levels
 
 4. INDIVIDUAL FOCUS AREAS
-   - Specific recommendations for each user's unique goals
-   - Exercises tailored to their individual needs
+   - Address each user's specific fitness goals separately
+   - Exercises tailored to their individual experience levels and goals
+   - Consider what each user is currently struggling with
 
 5. NUTRITION GUIDELINES
-   - General healthy eating principles
-   - Meal timing around workouts
-   - Hydration recommendations
-   - Any specific dietary considerations based on their goals
+   - Consider their different diet preferences and eating habits
+   - Meal timing recommendations around their workout schedule
+   - Hydration recommendations for their activity level
+   - How they can support each other's dietary goals despite different preferences
+   - Address their current eating patterns (cooking frequency, eating out, snacking habits)
 
 6. PROGRESS TRACKING
-   - Key metrics to monitor
-   - How to track progress together
-   - When and how to adjust the plan
+   - Key metrics appropriate for their experience levels and goals
+   - How to track progress together while respecting individual differences
+   - When and how to adjust the plan as they progress
+   - Benchmarks appropriate for their current fitness levels
 
 7. MOTIVATION AND ACCOUNTABILITY
-   - Strategies for staying motivated as partners
-   - How to handle different progress rates
+   - Strategies for staying motivated as partners with different experience levels
+   - How to handle different progress rates between beginner and more experienced partners
    - Communication tips for fitness partnerships
+   - Address their specific struggles mentioned in their profiles
 
 8. SAFETY AND INJURY PREVENTION
-   - Warm-up and cool-down routines
-   - Common injury prevention strategies
-   - When to rest or modify exercises
+   - Warm-up and cool-down routines appropriate for their experience levels
+   - Common injury prevention strategies for their chosen activities
+   - When to rest or modify exercises, especially important for different experience levels
+   - How the more experienced partner can help ensure safety
 
-Please make the plan practical, achievable, and tailored to their specific circumstances including location, schedule, and equipment availability.
+Please make the plan practical and achievable, considering their experience levels, specific goals, dietary preferences, and current challenges. Provide specific, actionable advice that acknowledges their different starting points while creating opportunities for them to work together effectively.
 
 Format the response in clear sections with specific, actionable advice.
         """
@@ -149,9 +175,9 @@ Format the response in clear sections with specific, actionable advice.
                         "role": "user",
                         "content": prompt
                     }
-                ],
-                temperature=0.7,
-                max_tokens=4000
+                ]
+                # temperature=0.7,
+                # max_tokens=4000
             )
             
             fitness_plan = response.choices[0].message.content
@@ -210,31 +236,41 @@ def main():
         # Initialize plan generator
         generator = FitnessPlanGenerator()
         
-        # Create sample user profiles (simulate matched users)
+        # Create sample user profiles (simulate matched users with new structure)
         primary_user = UserProfile(
             user_id="user_001",
-            goals="Weight loss and improve cardiovascular health",
+            height=170.0,
             weight=72.0,
-            height=168.0,
-            age=26,
-            fitness_level="Beginner",
-            preferred_activities=["Running", "Swimming", "Yoga"],
-            schedule="Evening workouts, 3-4 times per week",
-            location="New York City",
-            additional_info="Want to lose 10kg and find workout buddy for motivation"
+            experience=1,  # 1 year experience (beginner)
+            eat_out_freq="2–3",
+            cook_freq="4–5",
+            daily_snacks="1",
+            snack_type="Healthy (fruit/nuts)",
+            fruit_veg_servings="4–5",
+            beverage_choice="Mostly water",
+            diet_preference="Omnivore",
+            fitness_goals=["Weight Loss", "Cardio Fitness"],
+            body_fat=22.0,
+            frequency=3,
+            struggling_with="Finding time for consistent workouts and controlling portion sizes"
         )
         
         matched_user = UserProfile(
             user_id="user_002",
-            goals="Weight loss and muscle toning",
-            weight=65.0,
             height=165.0,
-            age=28,
-            fitness_level="Beginner",
-            preferred_activities=["Yoga", "Running", "Pilates"],
-            schedule="Weekend workouts and some weekday evenings",
-            location="New York City",
-            additional_info="New to fitness, looking for supportive workout partner"
+            weight=65.0,
+            experience=3,  # 3 years experience (intermediate)
+            eat_out_freq="0–1",
+            cook_freq="6+",
+            daily_snacks="0",
+            snack_type="Healthy (fruit/nuts)",
+            fruit_veg_servings="6+",
+            beverage_choice="Mostly water",
+            diet_preference="Vegetarian",
+            fitness_goals=["Weight Loss", "Strength Training", "General Health"],
+            body_fat=18.5,
+            frequency=4,
+            struggling_with="Balancing cardio and strength training effectively"
         )
         
         # Generate fitness plan
@@ -246,7 +282,13 @@ def main():
         print("FITNESS PLAN GENERATED SUCCESSFULLY")
         print("="*80)
         print(f"Primary User: {plan_data['primary_user_id']}")
+        print(f"  - Experience: {primary_user.experience} years")
+        print(f"  - Goals: {', '.join(primary_user.fitness_goals)}")
+        print(f"  - Diet: {primary_user.diet_preference}")
         print(f"Matched Partner: {plan_data['matched_user_id']}")
+        print(f"  - Experience: {matched_user.experience} years")
+        print(f"  - Goals: {', '.join(matched_user.fitness_goals)}")
+        print(f"  - Diet: {matched_user.diet_preference}")
         print(f"Model Used: {plan_data['model_used']}")
         print(f"Tokens Used: {plan_data['tokens_used']}")
         print("\n" + "="*80)
