@@ -264,7 +264,7 @@ python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)"
 - Cosine similarity matching is efficient for typical user bases
 
 ## Citations
-
+```bibtex
 @misc{fitness_match_app_2025,
   title = {Fitness Match App: AI-Powered Fitness Partner Matching System},
   author = {Zijia Liu and Prince Ali and Arihant Jain},
