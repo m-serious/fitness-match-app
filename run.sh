@@ -163,9 +163,10 @@ try:
     
     # Create a new user
     new_user = UserProfile(
-        user_id='integration_test_user',
+        username='integration_test_user',
         age=26,
         gender='Female',
+        location='Seattle, WA',
         height=175.0,
         weight=68.0,
         experience=2,
@@ -183,7 +184,7 @@ try:
     )
     
     matcher.add_user_to_database(new_user)
-    print(f'👤 Created test user: {new_user.user_id}')
+    print(f'👤 Created test user: {new_user.username}')
     
     # Find matches
     print('🔍 Finding best matches...')
@@ -194,7 +195,7 @@ try:
         sys.exit(1)
     
     best_match = matches[0][0]  # Get the best match profile
-    print(f'🎯 Best match found: {best_match.user_id} (similarity: {matches[0][1]:.4f})')
+    print(f'🎯 Best match found: {best_match.username} (similarity: {matches[0][1]:.4f})')
     
     # Generate fitness plan
     print('📋 Generating fitness plan for matched pair...')

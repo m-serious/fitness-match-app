@@ -37,11 +37,17 @@ class UserDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
         
+        # Drop existing table if it exists with old structure
+        cursor.execute('DROP TABLE IF EXISTS fitness_users CASCADE')
+        logger.info("Dropped existing fitness_users table")
+        
+        # Create new table with updated structure
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS fitness_users (
-                user_id VARCHAR(255) PRIMARY KEY,
+            CREATE TABLE fitness_users (
+                username VARCHAR(255) PRIMARY KEY,
                 age INTEGER NOT NULL,
                 gender VARCHAR(50) NOT NULL,
+                location VARCHAR(255) NOT NULL,
                 height FLOAT NOT NULL,
                 weight FLOAT NOT NULL,
                 experience INTEGER NOT NULL,
@@ -83,14 +89,15 @@ class UserDatabase:
         
         cursor.execute('''
             INSERT INTO fitness_users 
-            (user_id, age, gender, height, weight, experience, body_fat, frequency,
+            (username, age, gender, location, height, weight, experience, body_fat, frequency,
              eat_out_freq, cook_freq, daily_snacks, snack_type,
              fruit_veg_servings, beverage_choice, diet_preference,
              fitness_goals, struggling_with, embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (username) DO UPDATE SET
                 age = EXCLUDED.age,
                 gender = EXCLUDED.gender,
+                location = EXCLUDED.location,
                 height = EXCLUDED.height,
                 weight = EXCLUDED.weight,
                 experience = EXCLUDED.experience,
@@ -107,7 +114,7 @@ class UserDatabase:
                 struggling_with = EXCLUDED.struggling_with,
                 embedding = EXCLUDED.embedding
         ''', (
-            profile.user_id, profile.age, profile.gender, profile.height, profile.weight, profile.experience,
+            profile.username, profile.age, profile.gender, profile.location, profile.height, profile.weight, profile.experience,
             profile.body_fat, profile.frequency, profile.eat_out_freq,
             profile.cook_freq, profile.daily_snacks, profile.snack_type,
             profile.fruit_veg_servings, profile.beverage_choice, profile.diet_preference,
@@ -117,7 +124,7 @@ class UserDatabase:
         conn.commit()
         cursor.close()
         conn.close()
-        logger.info(f"User {profile.user_id} added to database")
+        logger.info(f"User {profile.username} added to database")
     
     def get_all_users_with_embeddings(self) -> List[Tuple[UserProfile, List[float]]]:
         """
@@ -137,14 +144,14 @@ class UserDatabase:
         users_with_embeddings = []
         for row in rows:
             try:
-                # 数据库字段顺序：
-                # 0: user_id, 1: age, 2: gender, 3: height, 4: weight, 5: experience,
-                # 6: body_fat, 7: frequency, 8: eat_out_freq, 9: cook_freq, 10: daily_snacks,
-                # 11: snack_type, 12: fruit_veg_servings, 13: beverage_choice, 14: diet_preference,
-                # 15: fitness_goals, 16: struggling_with, 17: embedding, 18: created_at
+                # 数据库字段顺序（更新后）：
+                # 0: username, 1: age, 2: gender, 3: location, 4: height, 5: weight, 6: experience,
+                # 7: body_fat, 8: frequency, 9: eat_out_freq, 10: cook_freq, 11: daily_snacks,
+                # 12: snack_type, 13: fruit_veg_servings, 14: beverage_choice, 15: diet_preference,
+                # 16: fitness_goals, 17: struggling_with, 18: embedding, 19: created_at
                 
                 # Handle fitness_goals
-                fitness_goals = row[15]
+                fitness_goals = row[16]  # 更新索引
                 if isinstance(fitness_goals, str):
                     if fitness_goals.strip():
                         fitness_goals = json.loads(fitness_goals)
@@ -159,7 +166,7 @@ class UserDatabase:
                     fitness_goals = []
                 
                 # Handle embedding
-                embedding = row[17]
+                embedding = row[18]  # 更新索引
                 if isinstance(embedding, str):
                     if embedding.strip():
                         embedding = json.loads(embedding)
@@ -181,30 +188,31 @@ class UserDatabase:
                     continue
                 
                 profile = UserProfile(
-                    user_id=row[0],
+                    username=row[0],
                     age=row[1],
                     gender=row[2],
-                    height=row[3],
-                    weight=row[4],
-                    experience=row[5],
-                    body_fat=row[6],
-                    frequency=row[7],
-                    eat_out_freq=row[8],
-                    cook_freq=row[9],
-                    daily_snacks=row[10],
-                    snack_type=row[11],
-                    fruit_veg_servings=row[12],
-                    beverage_choice=row[13],
-                    diet_preference=row[14],
+                    location=row[3],
+                    height=row[4],
+                    weight=row[5],
+                    experience=row[6],
+                    body_fat=row[7],
+                    frequency=row[8],
+                    eat_out_freq=row[9],
+                    cook_freq=row[10],
+                    daily_snacks=row[11],
+                    snack_type=row[12],
+                    fruit_veg_servings=row[13],
+                    beverage_choice=row[14],
+                    diet_preference=row[15],
                     fitness_goals=fitness_goals,
-                    struggling_with=row[16] or ""
+                    struggling_with=row[17] or ""
                 )
                 users_with_embeddings.append((profile, embedding))
                 
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error for user {row[0]}: {e}")
-                logger.error(f"Problematic fitness_goals: {repr(row[15])}")
-                logger.error(f"Problematic embedding: {repr(row[17])}")
+                logger.error(f"Problematic fitness_goals: {repr(row[16])}")
+                logger.error(f"Problematic embedding: {repr(row[18])}")
                 continue
             except Exception as e:
                 logger.error(f"Error processing user {row[0]}: {e}")
@@ -231,10 +239,10 @@ class UserDatabase:
         logger.info("Cleaning up database data format...")
         
         # Get all users
-        cursor.execute('SELECT user_id, fitness_goals, embedding FROM fitness_users')
+        cursor.execute('SELECT username, fitness_goals, embedding FROM fitness_users')
         rows = cursor.fetchall()
         
-        for user_id, fitness_goals, embedding in rows:
+        for username, fitness_goals, embedding in rows:
             try:
                 # Fix fitness_goals format
                 if isinstance(fitness_goals, list):
@@ -244,7 +252,7 @@ class UserDatabase:
                     parsed_goals = json.loads(fitness_goals)
                     fitness_goals_json = json.dumps(parsed_goals)
                 else:
-                    logger.warning(f"Invalid fitness_goals format for {user_id}, setting to empty list")
+                    logger.warning(f"Invalid fitness_goals format for {username}, setting to empty list")
                     fitness_goals_json = json.dumps([])
                 
                 # Fix embedding format
@@ -255,18 +263,18 @@ class UserDatabase:
                     parsed_embedding = json.loads(embedding)
                     embedding_json = json.dumps(parsed_embedding)
                 else:
-                    logger.error(f"Invalid embedding format for {user_id}, skipping...")
+                    logger.error(f"Invalid embedding format for {username}, skipping...")
                     continue
                 
                 # Update the record
                 cursor.execute('''
                     UPDATE fitness_users 
                     SET fitness_goals = %s, embedding = %s 
-                    WHERE user_id = %s
-                ''', (fitness_goals_json, embedding_json, user_id))
+                    WHERE username = %s
+                ''', (fitness_goals_json, embedding_json, username))
                 
             except Exception as e:
-                logger.error(f"Failed to fix data for user {user_id}: {e}")
+                logger.error(f"Failed to fix data for user {username}: {e}")
         
         conn.commit()
         cursor.close()
@@ -309,7 +317,7 @@ class FitnessUserMatcher:
         
         # Add to database
         self.database.add_user(profile, embedding)
-        logger.info(f"User {profile.user_id} successfully added to database")
+        logger.info(f"User {profile.username} successfully added to database")
     
     def populate_sample_data(self, force_refresh: bool = False):
         """
@@ -330,7 +338,7 @@ class FitnessUserMatcher:
                 try:
                     self.add_user_to_database(user)
                 except Exception as e:
-                    logger.error(f"Failed to add user {user.user_id}: {str(e)}")
+                    logger.error(f"Failed to add user {user.username}: {str(e)}")
             
             logger.info(f"Added {len(sample_users)} sample users to database")
         else:
@@ -347,7 +355,7 @@ class FitnessUserMatcher:
                     try:
                         self.add_user_to_database(user)
                     except Exception as e:
-                        logger.error(f"Failed to add user {user.user_id}: {str(e)}")
+                        logger.error(f"Failed to add user {user.username}: {str(e)}")
                 logger.info(f"Re-populated database with {len(sample_users)} sample users")
     
     def find_best_matches(self, new_user: UserProfile, top_k: int = 5) -> List[Tuple[UserProfile, float]]:
@@ -362,7 +370,7 @@ class FitnessUserMatcher:
             List of tuples containing (matched_user_profile, similarity_score)
         """
         # Generate embedding for new user
-        logger.info(f"Generating embedding for new user {new_user.user_id}")
+        logger.info(f"Generating embedding for new user {new_user.username}")
         new_user_embedding = self.embedding_generator.generate_profile_embedding(new_user)
         
         # Get all existing users with embeddings
@@ -380,7 +388,7 @@ class FitnessUserMatcher:
         
         for profile, embedding in existing_users:
             # Skip if it's the same user
-            if profile.user_id == new_user.user_id:
+            if profile.username == new_user.username:
                 continue
                 
             existing_embedding_array = np.array(embedding).reshape(1, -1)
@@ -391,7 +399,7 @@ class FitnessUserMatcher:
         similarities.sort(key=lambda x: x[1], reverse=True)
         top_matches = similarities[:top_k]
         
-        logger.info(f"Found {len(top_matches)} matches for user {new_user.user_id}")
+        logger.info(f"Found {len(top_matches)} matches for user {new_user.username}")
         return top_matches
     
     def get_match_details(self, matches: List[Tuple[UserProfile, float]]) -> Dict:
@@ -412,10 +420,11 @@ class FitnessUserMatcher:
         for i, (profile, similarity) in enumerate(matches):
             match_info = {
                 "rank": i + 1,
-                "user_id": profile.user_id,
+                "username": profile.username,
                 "similarity_score": round(similarity, 4),
                 "age": profile.age,
                 "gender": profile.gender,
+                "location": profile.location,
                 "height": profile.height,
                 "weight": profile.weight,
                 "experience": profile.experience,
@@ -438,9 +447,10 @@ def main():
         
         # Create new user for matching
         new_user = UserProfile(
-            user_id="new_user_001",
+            username="new_user_001",
             age=25,
             gender="Female",
+            location="San Francisco, CA",
             height=170.0,
             weight=70.0,
             experience=2,
@@ -467,7 +477,7 @@ def main():
         print("\n" + "="*80)
         print("FITNESS MATCHING RESULTS")
         print("="*80)
-        print(f"New User: {new_user.user_id}")
+        print(f"New User: {new_user.username}")
         print(f"Profile: {new_user.height}cm, {new_user.weight}kg, {new_user.experience}yr exp")
         print(f"Goals: {', '.join(new_user.fitness_goals)}")
         print(f"Diet: {new_user.diet_preference}")
@@ -477,7 +487,7 @@ def main():
         
         for match in match_details['matches']:
             print(f"Rank #{match['rank']}")
-            print(f"User ID: {match['user_id']}")
+            print(f"User ID: {match['username']}")
             print(f"Similarity Score: {match['similarity_score']:.4f}")
             print(f"Profile: {match['height']}cm, {match['weight']}kg, {match['experience']}yr exp")
             print(f"Goals: {', '.join(match['fitness_goals'])}")

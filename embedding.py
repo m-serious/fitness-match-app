@@ -13,11 +13,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class UserProfile:
     """User fitness profile data structure"""
-    user_id: str
+    username: str
     
     # Part 1: Basic Information (required fields first)
     age: int  # in years - required
     gender: str  # "Male", "Female", "Non-binary", "Prefer not to say" - required
+    location: str  # User's location/city - required
     height: float  # in cm - required
     weight: float  # in kg - required
     experience: int  # years of fitness experience - required
@@ -70,7 +71,7 @@ class FitnessEmbeddingGenerator:
             Formatted text description
         """
         # Basic Information
-        basic_info = f"Age: {profile.age} years, Gender: {profile.gender}, Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
+        basic_info = f"Age: {profile.age} years, Gender: {profile.gender}, Location: {profile.location}, Height: {profile.height}cm, Weight: {profile.weight}kg, Experience: {profile.experience} years"
         if profile.body_fat:
             basic_info += f", Body Fat: {profile.body_fat}%"
         if profile.frequency:
@@ -143,7 +144,7 @@ class FitnessEmbeddingGenerator:
             Profile embedding vector
         """
         profile_text = self.profile_to_text(profile)
-        logger.info(f"Generating profile embedding for user {profile.user_id}")
+        logger.info(f"Generating profile embedding for user {profile.username}")
         return self.generate_embedding(profile_text)
     
     def generate_batch_embeddings(self, profiles: List[UserProfile]) -> List[List[float]]:
@@ -172,6 +173,15 @@ def generate_sample_users() -> List[UserProfile]:
     diet_prefs = ["Omnivore", "Vegetarian", "Vegan", "Keto / low-carb"]
     genders = ["Male", "Female", "Non-binary", "Prefer not to say"]
     
+    # Sample locations
+    locations = [
+        "New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Phoenix, AZ",
+        "Philadelphia, PA", "San Antonio, TX", "San Diego, CA", "Dallas, TX", "San Jose, CA",
+        "Austin, TX", "Jacksonville, FL", "San Francisco, CA", "Columbus, OH", "Charlotte, NC",
+        "Fort Worth, TX", "Indianapolis, IN", "Seattle, WA", "Denver, CO", "Boston, MA",
+        "Miami, FL", "Atlanta, GA", "Portland, OR", "Las Vegas, NV", "Detroit, MI"
+    ]
+
     fitness_goals_options = [
         "Weight Loss", "Muscle Gain", "Strength Training", "Cardio Fitness",
         "Flexibility", "Endurance", "General Health", "Sports Performance"
@@ -196,6 +206,7 @@ def generate_sample_users() -> List[UserProfile]:
         # Generate realistic basic info
         age = random.randint(15, 65)  # 15-65 years old
         gender = random.choice(genders)
+        location = random.choice(locations)
         
         # Height varies by gender for realism
         if gender == "Male":
@@ -227,9 +238,10 @@ def generate_sample_users() -> List[UserProfile]:
         struggling = random.choice(struggling_examples)
         
         user = UserProfile(
-            user_id=f"user_{i:04d}",
+            username=f"user_{i:04d}",
             age=age,
             gender=gender,
+            location=location,
             height=height,
             weight=weight,
             experience=experience,
@@ -264,7 +276,7 @@ def main():
         print("=" * 50)
         
         for user in sample_users:
-            print(f"\nUser ID: {user.user_id}")
+            print(f"\nUser ID: {user.username}")
             print(f"Basic: {user.height}cm, {user.weight}kg, {user.experience}yr exp")
             if user.body_fat:
                 print(f"Body Fat: {user.body_fat}%")
@@ -276,7 +288,7 @@ def main():
                 print(f"Struggling: {user.struggling_with}")
         
         # Generate embedding for first user as example
-        print(f"\nGenerating embedding for {sample_users[0].user_id}...")
+        print(f"\nGenerating embedding for {sample_users[0].username}...")
         embedding = generator.generate_profile_embedding(sample_users[0])
         print(f"Embedding dimension: {len(embedding)}")
         print(f"First 5 values: {embedding[:5]}")
